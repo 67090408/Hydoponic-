@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<!--
+  โรงเรือนไฮโดรโปนิกส์ ธีม Groot: แผนที่อากาศ 3x3 + VPD
+  เปิดแบบนี้: idea_15.html?team=team11
+  ฟัง bento-aiot/<ทีม>/# และส่งคำสั่งเข้า bento-aiot/<ทีม>/cmd
+  คำสั่งที่ส่งได้: {"cmd":"ack"}  {"cmd":"crop","name":"cos"}
+                   {"cmd":"fan","on":true|false}  {"cmd":"mist","sec":5}
+  broker สาธารณะ ไม่มีรหัสผ่าน ใครก็อ่านและสั่งได้ ห้ามส่งของลับ
+-->
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>โรงเรือนไฮโดรโปนิกส์ ธีม Groot</title>
+<style>
+  :root {
+    --bg: #1b120b; --card: #2a1b10; --card2: #35231459; --line: #55391f; --ink: #f3e9d2; --dim: #b89d7a;
+    --bark: #6b4528; --leaf: #8bd146; --water: #4fc3d4; --eye: #ffb92e;
+    --ok: #8bd146; --warn: #ffb92e; --bad: #ef5b4f;
+    --font: system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", "Sarabun", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--ink); font-family: var(--font); line-height: 1.45;
+    background:
+      repeating-linear-gradient(92deg, rgba(0,0,0,.18) 0 2px, transparent 2px 19px),
+      linear-gradient(180deg, #2c1c10, var(--bg) 320px); background-color: var(--bg); }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 14px; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand svg { width: 76px; height: 76px; flex: none; overflow: visible; }
+  h1 { margin: 0; font-size: 23px; color: var(--leaf); }
+  .sub { margin: 2px 0 0; color: var(--dim); font-size: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .row > * { min-width: 0; }
+  .chip { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--dim); background: var(--card); }
+  .chip.on { color: var(--ok); border-color: var(--ok); }
+  input, button, select { font: inherit; border-radius: 12px; border: 1px solid var(--line); background: #1f140c; color: var(--ink); padding: 8px 12px; min-height: 40px; }
+  button { cursor: pointer; font-weight: 600; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--eye); outline-offset: 2px; }
+  button.main { background: var(--leaf); color: #17240a; border-color: var(--leaf); }
+  button.water { background: #1b6f7c; color: #fff; border-color: var(--water); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.active { background: var(--ok); color: #17240a; border-color: var(--ok); box-shadow: 0 0 0 3px rgba(139,209,70,.3); }
+  button.active:disabled { opacity: 1; cursor: default; }
+  #fanOff.active { background: var(--dim); color: #1b120b; border-color: var(--dim); box-shadow: 0 0 0 3px rgba(184,157,122,.3); }
+  #mist.active { background: var(--water); color: #08323a; border-color: var(--water); box-shadow: 0 0 0 3px rgba(79,195,212,.35); }
+  .alarm { display: none; margin: 12px 0; padding: 12px 14px; border-radius: 14px; background: var(--bad); color: #fff; }
+  .alarm.show { display: block; }
+  .grid2 { display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 680px) { .grid2 { grid-template-columns: 1fr; } }
+  .grid2 > * { min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin-top: 12px; }
+  .grid2 .card { margin-top: 0; }
+  .card h2 { margin: 0 0 8px; font-size: 15px; color: var(--leaf); }
+  svg { width: 100%; height: auto; display: block; }
+  .big { font-size: 34px; font-weight: 800; }
+  .vpdbar { position: relative; height: 18px; border-radius: 9px; margin: 10px 0 4px;
+    background: linear-gradient(90deg, #7fc3e3 0 13.3%, #8bd146 13.3% 53.3%, #e58a7e 53.3% 100%); }
+  .vpdbar i { position: absolute; top: -5px; width: 4px; height: 28px; background: var(--ink); border-radius: 2px; left: 0; }
+  .scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+  ul.log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-size: 14px; }
+  ul.log li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .lv0 { color: var(--ok); } .lv1 { color: var(--warn); } .lv2 { color: var(--bad); }
+  .muted { color: var(--dim); font-size: 13px; }
+  .grp { padding-top: 10px; margin-top: 10px; border-top: 1px dashed var(--line); }
+  footer { margin: 18px 0 8px; color: var(--dim); font-size: 13px; }
+
+  /* ---------- Groot ---------- */
+  .eye { fill: var(--eye); }
+  .leaf { transform-box: fill-box; transform-origin: 50% 100%; animation: sway 4s ease-in-out infinite; }
+  .leaf.b { animation-delay: -1.6s; }
+  @keyframes sway { 0%,100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .leaf { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 80 80" aria-hidden="true">
+        <g class="leaf"><path d="M40 20 C30 6 20 8 14 2 C14 16 24 24 40 20Z" fill="#8bd146"/></g>
+        <g class="leaf b"><path d="M42 20 C52 4 62 8 70 4 C68 18 56 26 42 20Z" fill="#5fa82a"/></g>
+        <path d="M18 34 C18 22 62 22 62 34 L64 62 C64 72 16 72 16 62Z" fill="#6b4528"/>
+        <path d="M24 30 L26 66 M36 26 L35 70 M50 26 L52 70 M58 32 L57 64" stroke="#4a2e18" stroke-width="2" fill="none"/>
+        <ellipse class="eye" cx="30" cy="44" rx="5" ry="6"/><ellipse class="eye" cx="50" cy="44" rx="5" ry="6"/>
+        <path d="M31 58 Q40 63 49 58" stroke="#2a1708" stroke-width="3" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>โรงเรือนไฮโดรโปนิกส์</h1>
+        <p class="sub">แผนผังอากาศของผัก: วันนี้ผักสุขภาพเป็นไง</p>
+      </div>
+    </div>
+    <div class="row">
+      <label class="muted">ทีม <input id="team" size="10" autocomplete="off"></label>
+      <button id="go">เชื่อมต่อ</button>
+      <span id="conn" class="chip">ยังไม่ต่อ</span>
+    </div>
+  </header>
+
+  <div id="alarm" class="alarm" role="alert"><b>ผักเครียดแล้ว</b> <span id="todo">ตรวจโรงเรือนเดี๋ยวนี้</span></div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>แผนที่อากาศ <span class="muted">(จุดล่าสุดใหญ่สุด)</span></h2>
+      <svg id="map" viewBox="0 0 300 300" aria-label="แผนที่อุณหภูมิกับความชื้น">
+        <g id="cells"></g>
+        <g fill="#b89d7a" font-size="11">
+          <text x="4" y="58">ร้อน</text><text x="4" y="148">พอดี</text><text x="4" y="238">หนาว</text>
+          <text x="58" y="296">แห้ง</text><text x="148" y="296">พอดี</text><text x="238" y="296">ชื้น</text>
+        </g>
+        <polyline id="trail" fill="none" stroke="#f3e9d2" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <g id="dots"></g>
+      </svg>
+    </div>
+    <div class="card">
+      <h2>ตอนนี้</h2>
+      <div class="row"><span class="big" id="th">-- °C  -- %</span></div>
+      <p id="mood" class="muted">รอข้อความแรกจากบอร์ด</p>
+      <h2 style="margin-top:12px">VPD แรงดึงน้ำจากใบ</h2>
+      <div class="row"><span class="big" id="vpd" style="color:var(--water)">-.--</span><span class="muted">kPa</span></div>
+      <div class="vpdbar"><i id="vpdMark"></i></div>
+      <div class="scale"><span>0</span><span>0.4</span><span>1.6</span><span>3.0</span></div>
+      <p id="vpdText" class="muted">ฟ้า = อับชื้น เสี่ยงเน่าโคน  เขียว = พอดี  ชมพู = ใบเหี่ยว</p>
+      <p>เครียดสะสม <b id="stress">--</b> นาที  <span class="muted">ผัก: <span id="crop">--</span></span></p>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>สั่งบอร์ด</h2>
+    <div class="row">
+      <button id="ack" class="main">รับทราบ (ack)</button>
+    </div>
+
+    <div class="grp">
+      <div class="row">
+        <label class="muted">ชนิดพืช <select id="cropSel"></select></label>
+        <button id="cropGo">เปลี่ยนพืช</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="row">
+        <button id="fanOn" class="water">เปิดพัดลม</button>
+        <button id="fanOff">ปิดพัดลม</button>
+        <button id="mist" class="water">พ่นหมอก</button>
+        <span id="devState" class="muted">พัดลม: ไม่ทราบ</span>
+      </div>
+    </div>
+    <p id="cmdMsg" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <h2>บันทึกโรงเรือน</h2>
+    <ul id="log" class="log"></ul>
+    <div class="row" style="margin-top:10px">
+      <button id="csv">ดาวน์โหลด CSV</button>
+      <span id="other" class="muted"></span>
+    </div>
+  </section>
+
+  <footer>
+    <p>ต่อยอดหน้านี้เองได้ (แก้ด้วยตัวเองหรือ vibe coding โดยวาง s2/app/MQTT_CONTRACT_th.md ให้ AI ก่อน)</p>
+    <p>หน้านี้เป็นจุดเริ่มต้นเท่านั้น ห้ามส่งตามนี้ ทีมต้องต่อยอดเองอย่างน้อย 3 อย่าง (ดู PROJECT_BRIEF_lite_th.md)</p>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.0/dist/mqtt.min.js"
+        integrity="sha384-9WWboT9UtuPFRlOLq4FygQkcJxzYcpz8SXGkNyCEXM+44n14xzjNlrRKYZwuF/A6" crossorigin="anonymous"></script>
+<script>
+const BROKER_URL = "wss://broker.hivemq.com:8884/mqtt";
+const ROOT = "bento-aiot";
+// ตรงกับ CROPS ในไฟล์บอร์ด v2 (แก้คู่กัน): T ต่ำ, T สูง, RH ต่ำ, RH สูง
+const LIMITS = {
+  green_oak: [20, 24, 60, 70], red_oak: [20, 24, 60, 70], cos: [20, 24, 60, 70],
+  curly_kale: [20, 23, 65, 75], rocket: [20, 25, 65, 75]
+};
+const CROP_TH = { green_oak: "กรีนโอ๊ค", red_oak: "เรดโอ๊ค", cos: "คอส", curly_kale: "เคล", rocket: "ร็อคเก็ต" };
+const KNOWN = ["id", "crop", "level", "alert", "temp_c", "rh", "sun_c", "vpd", "stress_min"];
+const MOOD = ["ผักสบายดี", "ผักเริ่มเครียด", "ผักเครียดแล้ว"];
+const TODO = {
+  hot: "เปิดพัดลมหรือพ่นหมอกลดร้อน", wet: "เปิดพัดลมระบายความชื้น", dry: "พ่นหมอกเพิ่มความชื้น",
+  cold: "ปิดพัดลม", vpd_low: "เปิดพัดลมลดความอับชื้น", vpd_high: "พ่นหมอกลดแรงดึงน้ำจากใบ"
+};
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+let client = null, team = new URLSearchParams(location.search).get("team") || "";
+let lim = LIMITS.cos, curCrop = null;
+const rows = [], trail = [];
+$("team").value = team;
+
+// เติมรายการพืช
+Object.keys(CROP_TH).forEach((k) => {
+  const o = document.createElement("option");
+  o.value = k; o.textContent = CROP_TH[k];
+  $("cropSel").appendChild(o);
+});
+
+function num(v) { return typeof v === "number" && Number.isFinite(v) ? v : null; }
+function hhmm(d) { return d.toTimeString().slice(0, 8); }
+function setStatus(msg, ok) { $("conn").textContent = msg; $("conn").className = ok ? "chip on" : "chip"; }
+
+// แปลงค่าเป็นตำแหน่งในตาราง 3 ช่อง: ช่องกลางคือช่วงพอดี ช่องข้างยืดออกไปอีกช่วงละ 10 C / 30 %
+function band(v, lo, hi, pad) {
+  if (v < lo) return Math.max(0, 1 - (lo - v) / pad);
+  if (v > hi) return 2 + Math.min(1, (v - hi) / pad);
+  return 1 + (v - lo) / Math.max(1, hi - lo);
+}
+function xy(t, rh) { return [30 + band(rh, lim[2], lim[3], 30) * 90, 270 - band(t, lim[0], lim[1], 10) * 90]; }
+
+function drawCells() {
+  const g = $("cells"); g.textContent = "";
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    const ok = r === 1 && c === 1;
+    const e = document.createElementNS(SVGNS, "rect");
+    e.setAttribute("x", 32 + c * 90); e.setAttribute("y", 2 + r * 90);
+    e.setAttribute("width", 86); e.setAttribute("height", 86); e.setAttribute("rx", 10);
+    e.setAttribute("fill", ok ? "#355a21" : "#33231a"); e.setAttribute("stroke", "#55391f");
+    g.appendChild(e);
+  }
+}
+
+function drawTrail() {
+  $("trail").setAttribute("points", trail.map((p) => xy(p.t, p.rh).map((v) => v.toFixed(1)).join(",")).join(" "));
+  const g = $("dots"); g.textContent = "";
+  trail.forEach((p, i) => {
+    const [x, y] = xy(p.t, p.rh);
+    const c = document.createElementNS(SVGNS, "circle");
+    c.setAttribute("cx", x.toFixed(1)); c.setAttribute("cy", y.toFixed(1));
+    c.setAttribute("r", i === trail.length - 1 ? 9 : 4);
+    c.setAttribute("fill", ["#8bd146", "#ffb92e", "#ef5b4f"][p.level] || "#b89d7a");
+    c.setAttribute("opacity", (0.35 + 0.65 * (i + 1) / trail.length).toFixed(2));
+    g.appendChild(c);
+  });
+}
+
+function showVpd(v) {
+  $("vpd").textContent = v.toFixed(2);
+  $("vpdMark").style.left = "calc(" + (Math.max(0, Math.min(3, v)) / 3 * 100).toFixed(1) + "% - 2px)";
+  $("vpdText").textContent = v < 0.4 ? "อับชื้น เสี่ยงเน่าโคน" : (v > 1.6 ? "อากาศดึงน้ำจากใบแรง ใบเหี่ยว" : "ใบคายน้ำพอดี");
+}
+
+function onEvent(d) {
+  const level = Number.isInteger(d.level) && d.level >= 0 && d.level <= 2 ? d.level : null;
+  const t = num(d.temp_c), rh = num(d.rh), sun = num(d.sun_c), vpd = num(d.vpd), stress = num(d.stress_min);
+  const now = new Date();
+  if (typeof d.crop === "string") {
+    $("crop").textContent = CROP_TH[d.crop] || d.crop.slice(0, 20);
+    if (LIMITS[d.crop]) {
+      lim = LIMITS[d.crop];
+      $("cropSel").value = d.crop;
+    }
+    if (d.crop !== curCrop) {            // เปลี่ยนพืช: ล้างรอยเดินเก่า เพราะเกณฑ์ไม่เหมือนกัน
+      if (curCrop !== null) { trail.length = 0; drawTrail(); }
+      curCrop = d.crop;
+    }
+  }
+  if (t !== null && rh !== null) $("th").textContent = t.toFixed(1) + " C  " + rh.toFixed(0) + " %";
+  if (vpd !== null && vpd >= 0) showVpd(vpd);
+  if (stress !== null) $("stress").textContent = String(stress);
+  const alert = typeof d.alert === "string" ? d.alert.slice(0, 40) : "";
+  if (level !== null) {
+    $("mood").textContent = MOOD[level] + (level && alert ? " (" + alert + ")" : "");
+    $("mood").className = "lv" + level;
+    const todo = alert.split("+").map((k) => TODO[k]).filter(Boolean);
+    $("todo").textContent = todo.length ? todo.join(" และ ") : "ตรวจโรงเรือนด่วน";
+    $("alarm").className = level === 2 ? "alarm show" : "alarm";
+  }
+  if (t !== null && rh !== null && level !== null) { trail.push({ t, rh, level }); if (trail.length > 12) trail.shift(); drawTrail(); }
+  const extra = Object.keys(d).filter((k) => !KNOWN.includes(k));
+  $("other").textContent = extra.length ? "คีย์ที่หน้านี้ยังไม่รู้จัก: " + extra.slice(0, 6).join(", ") : "";
+  rows.push([now.toISOString(), level, t, rh, sun, vpd, stress, typeof d.alert === "string" ? d.alert : ""]);
+  const li = document.createElement("li");
+  li.textContent = hhmm(now) + "  " + (level === null ? "?" : MOOD[level]) + "  " + (t === null ? "--" : t.toFixed(1)) + " C  " +
+    (rh === null ? "--" : rh.toFixed(0)) + " %  VPD " + (vpd === null ? "--" : vpd.toFixed(2));
+  if (level !== null) li.className = "lv" + level;
+  $("log").prepend(li);
+  while ($("log").children.length > 80) $("log").lastChild.remove();
+}
+
+function send(obj, label) {
+  if (!client || !client.connected) { $("cmdMsg").textContent = "ยังไม่ได้ต่อ broker คำสั่งยังไม่ถึงบอร์ด"; return false; }
+  client.publish(ROOT + "/" + team + "/cmd", JSON.stringify(obj));
+  $("cmdMsg").textContent = "ส่งแล้ว: " + label + " " + hhmm(new Date());
+  return true;
+}
+
+function csvCell(v) { const s = v === null || v === undefined ? "" : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function downloadCsv() {
+  const head = ["time", "level", "temp_c", "rh", "sun_c", "vpd", "stress_min", "alert"];
+  const lines = [head.join(",")].concat(rows.map((r) => r.map(csvCell).join(",")));
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });   // BOM ให้ Excel อ่านไทยได้
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "hydroponic_" + team + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function connect() {
+  team = $("team").value.trim();
+  if (!/^team[0-9a-z_]{2,20}$/.test(team) || team === "team00") { setStatus("ใส่เลขทีม เช่น team05", false); return; }
+  if (typeof mqtt === "undefined") { setStatus("โหลดไลบรารี MQTT ไม่ได้ ตรวจเน็ต", false); return; }
+  if (client) client.end(true);
+  setStatus("กำลังต่อ " + team, false);
+  client = mqtt.connect(BROKER_URL, { clientId: "hydro-web-" + Math.random().toString(16).slice(2, 10), connectTimeout: 20000 });
+  client.on("connect", () => { setStatus("ต่อแล้ว " + team, true); client.subscribe(ROOT + "/" + team + "/#"); });
+  client.on("close", () => setStatus("หลุด กำลังต่อใหม่", false));
+  client.on("message", (topic, payload) => {
+    if (!topic.endsWith("/event")) return;
+    let d = null;
+    try { d = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (d && typeof d === "object" && !Array.isArray(d)) onEvent(d);
+  });
+}
+
+$("go").onclick = connect;
+$("ack").onclick = () => { if (send({ cmd: "ack" }, "รับทราบ")) $("alarm").className = "alarm"; };
+$("cropGo").onclick = () => {
+  const k = $("cropSel").value;
+  if (LIMITS[k]) send({ cmd: "crop", name: k }, "เปลี่ยนพืชเป็น " + CROP_TH[k]);
+};
+// สถานะพัดลมบนหน้าเว็บ: ปุ่มของสถานะปัจจุบันเปลี่ยนสีและกดซ้ำไม่ได้ อีกปุ่มกดสลับได้
+function setFanUi(on) {
+  $("fanOn").classList.toggle("active", on);   $("fanOn").disabled = on;
+  $("fanOff").classList.toggle("active", !on); $("fanOff").disabled = !on;
+  $("devState").textContent = "พัดลม: " + (on ? "เปิดอยู่" : "ปิดอยู่") + " (สั่งเมื่อ " + hhmm(new Date()) + ")";
+}
+$("fanOn").onclick = () => { if (send({ cmd: "fan", on: true }, "เปิดพัดลม")) setFanUi(true); };
+$("fanOff").onclick = () => { if (send({ cmd: "fan", on: false }, "ปิดพัดลม")) setFanUi(false); };
+
+// พ่นหมอก 5 วินาที: ปุ่มเปลี่ยนสี นับถอยหลัง และกดซ้ำไม่ได้จนกว่าจะครบเวลา
+let mistTimer = null;
+$("mist").onclick = () => {
+  if (mistTimer || !send({ cmd: "mist", sec: 5 }, "พ่นหมอก 5 วินาที")) return;
+  const b = $("mist"); let left = 5;
+  b.classList.add("active"); b.disabled = true; b.textContent = "กำลังพ่น " + left + " วิ";
+  mistTimer = setInterval(() => {
+    left--;
+    if (left > 0) { b.textContent = "กำลังพ่น " + left + " วิ"; return; }
+    clearInterval(mistTimer); mistTimer = null;
+    b.classList.remove("active"); b.disabled = false; b.textContent = "พ่นหมอก";
+  }, 1000);
+};
+$("csv").onclick = downloadCsv;
+drawCells();
+if (team) connect(); else setStatus("ใส่เลขทีมแล้วกดเชื่อมต่อ", false);
+</script>
+</body>
+</html>
