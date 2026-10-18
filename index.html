@@ -124,7 +124,9 @@
       <div class="vpdbar"><i id="vpdMark"></i></div>
       <div class="scale"><span>0</span><span>0.4</span><span>1.6</span><span>3.0</span></div>
       <p id="vpdText" class="muted">ฟ้า = อับชื้น เสี่ยงเน่าโคน  เขียว = พอดี  ชมพู = ใบเหี่ยว</p>
-      <p>เครียดสะสม <b id="stress">--</b> นาที  <span class="muted">ผัก: <span id="crop">--</span></span></p>
+      <p>เครียดสะสม <b id="stress">--</b> <span id="stressUnit">นาที</span>  <span class="muted">ผัก: <span id="crop">--</span></span></p>
+      <p id="stressAt" class="muted">ยังไม่ได้รับ stress_min จากบอร์ด</p>
+      <p id="topicNote" class="muted"></p>
     </div>
   </div>
 
@@ -161,10 +163,6 @@
     </div>
   </section>
 
-  <footer>
-    <p>ต่อยอดหน้านี้เองได้ (แก้ด้วยตัวเองหรือ vibe coding โดยวาง s2/app/MQTT_CONTRACT_th.md ให้ AI ก่อน)</p>
-    <p>หน้านี้เป็นจุดเริ่มต้นเท่านั้น ห้ามส่งตามนี้ ทีมต้องต่อยอดเองอย่างน้อย 3 อย่าง (ดู PROJECT_BRIEF_lite_th.md)</p>
-  </footer>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.16.0/dist/mqtt.min.js"
@@ -178,7 +176,7 @@ const LIMITS = {
   curly_kale: [20, 23, 65, 75], rocket: [20, 25, 65, 75]
 };
 const CROP_TH = { green_oak: "กรีนโอ๊ค", red_oak: "เรดโอ๊ค", cos: "คอส", curly_kale: "เคล", rocket: "ร็อคเก็ต" };
-const KNOWN = ["id", "crop", "level", "alert", "temp_c", "rh", "sun_c", "vpd", "stress_min"];
+const KNOWN = ["id", "crop", "level", "alert", "temp_c", "rh", "sun_c", "vpd", "stress_min", "stress_s"];
 const MOOD = ["ผักสบายดี", "ผักเริ่มเครียด", "ผักเครียดแล้ว"];
 const TODO = {
   hot: "เปิดพัดลมหรือพ่นหมอกลดร้อน", wet: "เปิดพัดลมระบายความชื้น", dry: "พ่นหมอกเพิ่มความชื้น",
@@ -189,6 +187,7 @@ const $ = (id) => document.getElementById(id);
 let client = null, team = new URLSearchParams(location.search).get("team") || "";
 let lim = LIMITS.cos, curCrop = null;
 const rows = [], trail = [];
+let lastSig = "", lastLog = 0;
 $("team").value = team;
 
 // เติมรายการพืช
@@ -199,6 +198,7 @@ Object.keys(CROP_TH).forEach((k) => {
 });
 
 function num(v) { return typeof v === "number" && Number.isFinite(v) ? v : null; }
+function numLoose(v) { if (typeof v === "string" && v.trim() !== "") v = Number(v); return num(v); }   // รับเลขที่มาเป็นข้อความ เช่น "12"
 function hhmm(d) { return d.toTimeString().slice(0, 8); }
 function setStatus(msg, ok) { $("conn").textContent = msg; $("conn").className = ok ? "chip on" : "chip"; }
 
@@ -242,9 +242,25 @@ function showVpd(v) {
   $("vpdText").textContent = v < 0.4 ? "อับชื้น เสี่ยงเน่าโคน" : (v > 1.6 ? "อากาศดึงน้ำจากใบแรง ใบเหี่ยว" : "ใบคายน้ำพอดี");
 }
 
+// เครียดสะสม: ยึดค่าจากบอร์ดล่าสุด แล้วเดินต่อทุกวินาทีเมื่อผักอยู่ระดับเตือน/เครียด (ตรงกับที่บอร์ดนับ)
+let sBase = null, sBaseAt = 0, sLevel = null, sFrom = "", lastMsgAt = 0;
+function renderStress() {
+  if (sBase === null) return;
+  const nowMs = Date.now(), age = nowMs - lastMsgAt;
+  const sec = sBase + (sLevel > 0 ? Math.floor((nowMs - sBaseAt) / 1000) : 0);
+  $("stress").textContent = String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
+  $("stressUnit").textContent = "";
+  let note = "ข้อมูลจากบอร์ดล่าสุด " + hhmm(new Date(lastMsgAt));
+  if (sLevel === 0) note += "  ผักสบายดี จึงไม่นับเวลาเครียด";
+  else if (sFrom === "min") note += "  (บอร์ดส่งเป็นนาที เว็บนับวินาทีต่อเอง)";
+  if (age > 10000) note += "  ไม่มีข้อมูลใหม่จากบอร์ด " + Math.floor(age / 1000) + " วินาที เว็บนับต่อเอง";
+  $("stressAt").textContent = note;
+}
+setInterval(renderStress, 1000);
+
 function onEvent(d) {
   const level = Number.isInteger(d.level) && d.level >= 0 && d.level <= 2 ? d.level : null;
-  const t = num(d.temp_c), rh = num(d.rh), sun = num(d.sun_c), vpd = num(d.vpd), stress = num(d.stress_min);
+  const t = num(d.temp_c), rh = num(d.rh), sun = num(d.sun_c), vpd = num(d.vpd), stress = numLoose(d.stress_min), stressS = numLoose(d.stress_s);
   const now = new Date();
   if (typeof d.crop === "string") {
     $("crop").textContent = CROP_TH[d.crop] || d.crop.slice(0, 20);
@@ -259,7 +275,17 @@ function onEvent(d) {
   }
   if (t !== null && rh !== null) $("th").textContent = t.toFixed(1) + " C  " + rh.toFixed(0) + " %";
   if (vpd !== null && vpd >= 0) showVpd(vpd);
-  if (stress !== null) $("stress").textContent = String(stress);
+  lastMsgAt = Date.now();
+  if (level !== null) sLevel = level;
+  if (stressS !== null && stressS >= 0) { sBase = Math.floor(stressS); sBaseAt = lastMsgAt; sFrom = "s"; }
+  else if (stress !== null) {                 // บอร์ดส่งมาเป็นนาที: เว็บนับวินาทีต่อเองในนาทีนั้น
+    const cur = sBase === null ? -1 : sBase + (sLevel > 0 ? Math.floor((lastMsgAt - sBaseAt) / 1000) : 0);
+    if (Math.floor(cur / 60) !== stress) { sBase = stress * 60; sBaseAt = lastMsgAt; }
+    sFrom = "min";
+  } else if (sBase === null) {
+    $("stressAt").textContent = "ข้อความล่าสุด " + hhmm(now) + " ไม่มี stress_s / stress_min";
+  }
+  renderStress();
   const alert = typeof d.alert === "string" ? d.alert.slice(0, 40) : "";
   if (level !== null) {
     $("mood").textContent = MOOD[level] + (level && alert ? " (" + alert + ")" : "");
@@ -268,9 +294,12 @@ function onEvent(d) {
     $("todo").textContent = todo.length ? todo.join(" และ ") : "ตรวจโรงเรือนด่วน";
     $("alarm").className = level === 2 ? "alarm show" : "alarm";
   }
-  if (t !== null && rh !== null && level !== null) { trail.push({ t, rh, level }); if (trail.length > 12) trail.shift(); drawTrail(); }
+  const sig = [level, t, rh, vpd, d.alert].join("|"), changed = sig !== lastSig; lastSig = sig;
+  if (changed && t !== null && rh !== null && level !== null) { trail.push({ t, rh, level }); if (trail.length > 12) trail.shift(); drawTrail(); }
   const extra = Object.keys(d).filter((k) => !KNOWN.includes(k));
   $("other").textContent = extra.length ? "คีย์ที่หน้านี้ยังไม่รู้จัก: " + extra.slice(0, 6).join(", ") : "";
+  if (!changed && now - lastLog < 30000) return;   // ค่าซ้ำ: ข้ามบันทึก/CSV (เว้นทุก 30 วินาที)
+  lastLog = now;
   rows.push([now.toISOString(), level, t, rh, sun, vpd, stress, typeof d.alert === "string" ? d.alert : ""]);
   const li = document.createElement("li");
   li.textContent = hhmm(now) + "  " + (level === null ? "?" : MOOD[level]) + "  " + (t === null ? "--" : t.toFixed(1)) + " C  " +
@@ -309,7 +338,7 @@ function connect() {
   client.on("connect", () => { setStatus("ต่อแล้ว " + team, true); client.subscribe(ROOT + "/" + team + "/#"); });
   client.on("close", () => setStatus("หลุด กำลังต่อใหม่", false));
   client.on("message", (topic, payload) => {
-    if (!topic.endsWith("/event")) return;
+    if (!topic.endsWith("/event")) { if (!topic.endsWith("/cmd")) $("topicNote").textContent = "ได้รับ topic อื่น: " + topic.slice(0, 60) + " (หน้านี้อ่านเฉพาะ /event)"; return; }
     let d = null;
     try { d = JSON.parse(payload.toString()); } catch (e) { return; }
     if (d && typeof d === "object" && !Array.isArray(d)) onEvent(d);
